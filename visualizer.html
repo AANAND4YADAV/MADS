@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MADS visualizer: follow one topic through the pipeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #e3e7e4;
+    --surface: #f4f6f3;
+    --ink: #16241d;
+    --muted: #556259;
+    --line: #b7c1b9;
+    --wet: #2e8b57;
+    --dry: #2b6cb0;
+    --haz: #c4372c;
+    --store: #b97a0e;
+    --verdict: var(--wet);
+    --term-bg: #13211a;
+    --term-ink: #d5e2d8;
+    --term-dim: #8aa093;
+    --sans: "Bricolage Grotesque", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  button { font: inherit; color: inherit; }
+  :focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 24px 56px; }
+
+  /* Header */
+  header h1 {
+    font-size: clamp(2.2rem, 6vw, 4.4rem);
+    line-height: 0.98;
+    font-weight: 800;
+    letter-spacing: -0.035em;
+    margin: 0 0 16px;
+    max-width: 14ch;
+  }
+  header p.lede { margin: 0; max-width: 56ch; color: var(--muted); font-size: 1.1rem; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center;
+    margin: 28px 0 36px;
+  }
+  .topics { display: flex; flex-wrap: wrap; gap: 8px; }
+  .topic-btn {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 999px;
+    padding: 8px 16px; cursor: pointer; font-weight: 600;
+  }
+  .topic-btn[aria-checked="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+  .play {
+    background: var(--ink); color: var(--surface); border: 0; border-radius: 10px;
+    padding: 11px 22px; font-weight: 800; cursor: pointer; font-size: 1rem;
+  }
+  .play:hover { background: #24382e; }
+  .status { color: var(--muted); font-size: 0.95rem; min-height: 1.5em; }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 40px; align-items: start; }
+
+  h2.section {
+    font-size: 1.05rem; font-weight: 800; margin: 0 0 14px; letter-spacing: -0.01em;
+  }
+
+  /* Pipeline */
+  .pipeline { list-style: none; margin: 0 0 34px; padding: 0 0 0 30px; position: relative; }
+  .pipeline::before {
+    content: ""; position: absolute; left: 7px; top: 22px; bottom: 22px; width: 2px; background: var(--line);
+  }
+  .stage { position: relative; margin-bottom: 10px; }
+  .stage .node {
+    position: absolute; left: -30px; top: 20px; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--bg); border: 2px solid var(--muted);
+    transition: background .25s, border-color .25s, box-shadow .25s;
+  }
+  .stage.done .node { background: var(--ink); border-color: var(--ink); }
+  .stage[aria-current="step"] .node {
+    background: var(--accent, var(--ink)); border-color: var(--accent, var(--ink));
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent, var(--ink)) 20%, transparent);
+  }
+  .stage.verdict { --accent: var(--verdict); }
+  .stage.store { --accent: var(--store); }
+
+  .card {
+    display: block; width: 100%; text-align: left; cursor: pointer;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .card:hover { border-color: var(--muted); }
+  .stage[aria-current="step"] .card, .side-card[aria-current="step"] {
+    border-color: var(--ink);
+    box-shadow: inset 5px 0 0 var(--accent, var(--ink));
+  }
+  .card .name { display: block; font-weight: 800; font-size: 1.08rem; letter-spacing: -0.01em; }
+  .card .file { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+  .card .brief { display: block; margin-top: 4px; color: var(--muted); font-size: 0.95rem; }
+
+  /* Side services */
+  .side { display: grid; gap: 10px; }
+  .side-card { --accent: var(--dry); position: relative; }
+  .side-card.live::after {
+    content: "running"; position: absolute; right: 14px; top: 12px;
+    font-size: 0.78rem; font-weight: 600; color: var(--dry);
+  }
+  .side-card.live { border-color: var(--dry); }
+  .side-note { margin: 0 0 14px; color: var(--muted); font-size: 0.95rem; max-width: 46ch; }
+
+  /* Inspector */
+  .inspector {
+    position: sticky; top: 16px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 22px 22px 20px;
+  }
+  .inspector h2 { margin: 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.025em; line-height: 1.1; }
+  .inspector .file { font-family: var(--mono); font-size: 0.85rem; color: var(--muted); margin: 6px 0 16px; display: block; }
+  .io { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+  .io h3, .does h3 { margin: 0 0 6px; font-size: 0.95rem; font-weight: 800; }
+  .io h3 { display: flex; align-items: center; gap: 8px; }
+  .io .tag { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .tag.in { background: var(--dry); }
+  .tag.out { background: var(--wet); }
+  pre.payload {
+    margin: 0; padding: 10px 12px; background: #e9ede9; border: 1px solid var(--line); border-radius: 8px;
+    font-family: var(--mono); font-size: 0.78rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word;
+    min-height: 3.2em;
+  }
+  .does p { margin: 0 0 16px; max-width: 62ch; }
+
+  .term {
+    background: var(--term-bg); color: var(--term-ink); border-radius: 10px; padding: 12px 14px;
+    font-family: var(--mono); font-size: 0.78rem; line-height: 1.6; height: 230px; overflow-y: auto;
+  }
+  .term .line { white-space: pre-wrap; word-break: break-word; }
+  .term .dim { color: var(--term-dim); }
+  .term .ok { color: #7fd69c; }
+  .term .who { color: #8fc2ff; }
+  .term .verdict-word { color: #fff; background: var(--verdict); padding: 0 6px; border-radius: 3px; }
+  .term-title { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 6px; }
+  .term-title h3 { margin: 0; font-size: 0.95rem; font-weight: 800; }
+  .term-title span { font-size: 0.82rem; color: var(--muted); }
+
+  footer.note { margin-top: 40px; color: var(--muted); font-size: 0.9rem; max-width: 70ch; }
+
+  @media (max-width: 880px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+    .inspector { position: static; }
+    .io { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Follow one topic through MADS</h1>
+    <p class="lede">Pick a topic and press play. Each stage lights up as the topic moves through the CLI, and the panel shows what goes in, what happens, and what comes out.</p>
+    <div class="controls">
+      <div class="topics" role="radiogroup" aria-label="Sample topic" id="topics"></div>
+      <button class="play" id="play" type="button">Play the run</button>
+      <span class="status" id="status" aria-live="polite"></span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <div>
+      <h2 class="section">The pipeline</h2>
+      <ol class="pipeline" id="pipeline"></ol>
+
+      <h2 class="section">Running alongside every debate</h2>
+      <p class="side-note">These pieces are not steps. They wrap the model calls and the run itself.</p>
+      <div class="side" id="side"></div>
+    </div>
+
+    <aside class="inspector" aria-label="Stage details">
+      <h2 id="i-name"></h2>
+      <code class="file" id="i-file"></code>
+      <div class="io">
+        <div><h3><span class="tag in"></span>Goes in</h3><pre class="payload" id="i-in"></pre></div>
+        <div><h3><span class="tag out"></span>Comes out</h3><pre class="payload" id="i-out"></pre></div>
+      </div>
+      <div class="does"><h3>What it does</h3><p id="i-does"></p></div>
+      <div class="term-title"><h3>Terminal</h3><span>Sample output</span></div>
+      <div class="term" id="term" role="log" aria-live="off"></div>
+    </aside>
+  </div>
+
+  <footer class="note">
+    The debate text and timings are illustrative. File names and JSON fields match what MADS writes to S3. Nothing on this page connects to AWS or to a model.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var RUN_ID = "20261010-212504";
+  var BUCKET = "s3://<your-bucket>";
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var TOPICS = {
+    pizza: {
+      label: "Greasy pizza box", slug: "greasy-pizza-box", category: "wet", color: "--wet", bin: "green bin", e2e: 41.2,
+      debate: [
+        ["Dr. Ananya Sharma", "Cardboard is recoverable, but heavy grease contaminates the pulp."],
+        ["Ravi Patel", "Food-soiled fibre composts well. It belongs in the green bin."],
+        ["Aarav Mehta", "No real hazard here, but residue spreads in a mixed stream."],
+        ["Nisha Verma", "No household will tear the clean half off. Send it wet."]
+      ]
+    },
+    battery: {
+      label: "Dead AA battery", slug: "dead-aa-battery", category: "hazardous", color: "--haz", bin: "red bin", e2e: 36.8,
+      debate: [
+        ["Dr. Ananya Sharma", "The metals are recoverable, but only through a dedicated stream."],
+        ["Ravi Patel", "Definitely not organic. Keep it away from the compost."],
+        ["Aarav Mehta", "Batteries start fires in sorting yards and leak into groundwater."],
+        ["Nisha Verma", "Collectors can spot it, and households can follow a hazardous rule."]
+      ]
+    },
+    jar: {
+      label: "Glass jam jar", slug: "glass-jam-jar", category: "dry", color: "--dry", bin: "blue bin", e2e: 33.5,
+      debate: [
+        ["Dr. Ananya Sharma", "Glass recycles indefinitely. A quick rinse is enough."],
+        ["Ravi Patel", "A little jam residue is organic, but it rinses off."],
+        ["Aarav Mehta", "Only the broken edges are a safety risk. A whole jar is fine."],
+        ["Nisha Verma", "Dry bin. Households already know glass goes there."]
+      ]
+    }
+  };
+
+  var current = "pizza";
+  function T() { return TOPICS[current]; }
+
+  /* ---------- Stage definitions ---------- */
+  var stages = [
+    {
+      id: "topic", name: "Topic", file: "topics.py", brief: "One topic at a time comes off the list.",
+      inFn: function () { return 'TOPICS = [\n  "Greasy pizza box",\n  "Dead AA battery",\n  "Glass jam jar",\n  ...\n]  # sample entries'; },
+      outFn: function (t) { return '"' + t.label + '"'; },
+      does: "topics.py holds the list of things to classify. main.py walks through it and debates each topic in turn.",
+      log: function (t) { return [{ text: '> next topic: "' + t.label + '"', cls: "dim" }]; }
+    },
+    {
+      id: "main", name: "Run setup", file: "main.py", brief: "Starts the run and times each debate.",
+      inFn: function (t) { return 'topic = "' + t.label + '"\nAGENTS = [4 Agent objects]'; },
+      outFn: function (t) { return 'run_id = "' + RUN_ID + '"\nrun_debate(AGENTS, "' + t.label + '")'; },
+      does: "Creates a run ID and checks the S3 bucket is reachable before any debate starts. Then it starts a timer and calls run_debate. If S3 is down, the debates still run and just aren't saved.",
+      log: function (t) {
+        return [
+          { text: "[s3] connected -> " + BUCKET + "/runs/" + RUN_ID + "/", cls: "ok" },
+          { text: '> run_debate(AGENTS, "' + t.label + '")', cls: "dim" }
+        ];
+      }
+    },
+    {
+      id: "agents", name: "Agents", file: "agent.py", brief: "Four experts, each with a built-in bias.",
+      inFn: function () { return "Agent(\n  name, role,\n  stance, behavior\n)  x 4"; },
+      outFn: function () {
+        return "Dr. Ananya Sharma  recyclable\nRavi Patel         wet\nAarav Mehta        hazardous / e-waste\nNisha Verma        what works on the ground";
+      },
+      does: "Each agent carries a name, a role, a default stance and a speaking style. The disagreement is built in, so the debate has something to resolve.",
+      log: function () { return [{ text: "4 agents ready: Sharma, Patel, Mehta, Verma", cls: "dim" }]; }
+    },
+    {
+      id: "debate", name: "Debate", file: "debate_manager.py", brief: "Agents argue the topic from their own stance.",
+      inFn: function (t) { return 'AGENTS + "' + t.label + '"'; },
+      outFn: function (t) { return '{\n  "category": "' + t.category + '",\n  ...\n}'; },
+      does: "Each agent argues from its stance. Every model call goes through llm.py, so tokens stream live and latency is recorded. The debate ends with a verdict dict that includes the category.",
+      live: ["model", "stream"],
+      log: function (t) {
+        var out = [];
+        t.debate.forEach(function (d) { out.push({ who: d[0], text: d[1], type: true }); });
+        return out;
+      }
+    },
+    {
+      id: "verdict", name: "Verdict", file: "bins.py", brief: "The category becomes a bin.", cls: "verdict",
+      inFn: function (t) { return 'verdict["category"]\n= "' + t.category + '"'; },
+      outFn: function (t) { return "Verdict: " + t.category + " (" + t.bin + ")"; },
+      does: "format_bin() turns the category into the bin message that is printed in the terminal.",
+      log: function (t) { return [{ verdict: t.category, text: " (" + t.bin + ")", pre: "Verdict: " }]; }
+    },
+    {
+      id: "save", name: "Save debate", file: "storage.py", brief: "One JSON file per debate goes to S3.", cls: "store",
+      inFn: function () { return "save_debate(\n  run_id, index, topic,\n  verdict, seconds\n)"; },
+      outFn: function (t) {
+        return "runs/" + RUN_ID + "/01-" + t.slug + ".json\n{\n  \"run_id\": \"" + RUN_ID + "\",\n  \"index\": 1,\n  \"topic\": \"" + t.label +
+          "\",\n  \"verdict\": { \"category\": \"" + t.category + "\", ... },\n  \"e2e_seconds\": " + t.e2e + ",\n  \"saved_at\": 1791647135\n}";
+      },
+      does: "Uploads the debate to S3 with boto3. The call is wrapped in safe(), so an AWS error prints a message and the run keeps going.",
+      live: ["stream"],
+      log: function (t) { return [{ text: "Saved -> " + BUCKET + "/runs/" + RUN_ID + "/01-" + t.slug + ".json", cls: "ok" }]; }
+    },
+    {
+      id: "summary", name: "Run summary", file: "main.py + storage.py", brief: "Totals for the whole run.", cls: "store",
+      inFn: function (t) { return "results = [\n  { topic, category,\n    e2e_seconds, s3_key }\n]  # one per topic"; },
+      outFn: function (t) {
+        return "runs/" + RUN_ID + "/summary.json\n{\n  \"run_id\", \"agents\",\n  \"debates\",\n  \"categories\",\n  \"latency_seconds\": {\n    \"min\", \"p50\", \"max\"\n  },\n  \"results\"\n}";
+      },
+      does: "After the last topic, main.py counts the categories, works out min, p50 and max latency, saves summary.json to S3, and prints the latency report.",
+      live: ["stream"],
+      log: function (t) {
+        var c = {}; c[t.category] = 1;
+        return [
+          { text: "Run summary -> " + BUCKET + "/runs/" + RUN_ID + "/summary.json", cls: "ok" },
+          { text: "Categories: " + JSON.stringify(c).replace(/"/g, "'"), cls: "dim" },
+          { text: "[latency] this debate took " + t.e2e + " s (sample)", cls: "dim" }
+        ];
+      }
+    }
+  ];
+
+  var sides = [
+    {
+      id: "model", name: "Model calls", file: "llm.py + Ollama", brief: "The only place that talks to the model.",
+      inFn: function () { return "A prompt built from the\nagent's stance and the topic"; },
+      outFn: function () { return "Tokens, streamed back\nas they are generated"; },
+      does: "llm.py is the single gateway to the model, and Ollama runs it locally. To switch to another provider, change this file only. Agents and the debate logic stay the same."
+    },
+    {
+      id: "stream", name: "Streaming and latency", file: "STREAMING.py", brief: "Live tokens, plus timings for every debate.",
+      inFn: function () { return "Every model call"; },
+      outFn: function (t) { return "Tokens printed live\ne2e_seconds per debate\n(" + t.e2e + " in this sample)\nLatency report at the end"; },
+      does: "STREAMING.enable() runs before agent and debate_manager are imported, so both use the wrapped calls. Per-debate time is stored with each JSON file, and the run summary reports min, p50 and max."
+    },
+    {
+      id: "trace", name: "Tracing", file: "OpenLIT / OpenTelemetry", brief: "Optional. Off unless you ask for it.",
+      inFn: function () { return "MADS_TRACE=1"; },
+      outFn: function () { return "OpenTelemetry traces\nand LLM metrics for\napplication \"mads\""; },
+      does: "Off by default so normal runs stay quiet. With MADS_TRACE=1, openlit.init(application_name=\"mads\") instruments the model calls and emits traces and metrics."
+    }
+  ];
+
+  var all = stages.concat(sides);
+  function find(id) { for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i]; }
+
+  /* ---------- DOM ---------- */
+  var elTopics = document.getElementById("topics");
+  var elPipe = document.getElementById("pipeline");
+  var elSide = document.getElementById("side");
+  var elTerm = document.getElementById("term");
+  var elStatus = document.getElementById("status");
+  var btnPlay = document.getElementById("play");
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  function buildTopics() {
+    Object.keys(TOPICS).forEach(function (k) {
+      var b = el("button", "topic-btn", TOPICS[k].label);
+      b.type = "button";
+      b.setAttribute("role", "radio");
+      b.setAttribute("aria-checked", k === current ? "true" : "false");
+      b.dataset.key = k;
+      b.addEventListener("click", function () { setTopic(k); });
+      elTopics.appendChild(b);
+    });
+  }
+
+  function cardInner(s) {
+    var b = el("button", "card");
+    b.type = "button";
+    b.appendChild(el("span", "name", s.name));
+    b.appendChild(el("span", "file", s.file));
+    b.appendChild(el("span", "brief", s.brief));
+    return b;
+  }
+
+  function buildLists() {
+    stages.forEach(function (s) {
+      var li = el("li", "stage" + (s.cls ? " " + s.cls : ""));
+      li.id = "stage-" + s.id;
+      li.appendChild(el("span", "node"));
+      var b = cardInner(s);
+      b.addEventListener("click", function () { cancelPlay(); select(s.id); });
+      li.appendChild(b);
+      elPipe.appendChild(li);
+    });
+    sides.forEach(function (s) {
+      var wrap = el("div", "side-card card-wrap");
+      var b = cardInner(s);
+      b.classList.add("side-card");
+      b.id = "side-" + s.id;
+      b.addEventListener("click", function () { cancelPlay(); select(s.id); });
+      elSide.appendChild(b);
+    });
+  }
+
+  /* ---------- Selection ---------- */
+  var selected = "topic";
+
+  function select(id) {
+    selected = id;
+    var s = find(id), t = T();
+    document.getElementById("i-name").textContent = s.name;
+    document.getElementById("i-file").textContent = s.file;
+    document.getElementById("i-in").textContent = s.inFn(t);
+    document.getElementById("i-out").textContent = s.outFn(t);
+    document.getElementById("i-does").textContent = s.does;
+
+    all.forEach(function (x) {
+      var node = document.getElementById("stage-" + x.id) || document.getElementById("side-" + x.id);
+      if (!node) return;
+      if (x.id === id) node.setAttribute("aria-current", "step"); else node.removeAttribute("aria-current");
+    });
+  }
+
+  function markDone(upToIndex) {
+    stages.forEach(function (s, i) {
+      document.getElementById("stage-" + s.id).classList.toggle("done", i < upToIndex);
+    });
+  }
+
+  function setLive(ids) {
+    sides.forEach(function (s) {
+      document.getElementById("side-" + s.id).classList.toggle("live", ids.indexOf(s.id) !== -1);
+    });
+  }
+
+  /* ---------- Terminal ---------- */
+  function clearTerm() { elTerm.textContent = ""; }
+
+  function sleep(ms) {
+    return new Promise(function (r) { setTimeout(r, reduce ? Math.min(ms, 30) : ms); });
+  }
+
+  var token = 0;
+
+  async function addLine(l, my) {
+    var line = el("div", "line");
+    elTerm.appendChild(line);
+    if (l.who) {
+      line.appendChild(el("span", "who", l.who + ": "));
+      var body = el("span");
+      line.appendChild(body);
+      if (reduce) { body.textContent = l.text; }
+      else {
+        for (var i = 0; i < l.text.length; i++) {
+          if (my !== token) return;
+          body.textContent += l.text[i];
+          elTerm.scrollTop = elTerm.scrollHeight;
+          await sleep(16);
+        }
+      }
+    } else if (l.verdict) {
+      line.appendChild(document.createTextNode(l.pre));
+      line.appendChild(el("span", "verdict-word", l.verdict));
+      line.appendChild(document.createTextNode(l.text));
+    } else {
+      if (l.cls) line.classList.add(l.cls);
+      line.textContent = l.text;
+    }
+    elTerm.scrollTop = elTerm.scrollHeight;
+    await sleep(l.who ? 350 : 450);
+  }
+
+  /* ---------- Play ---------- */
+  var playing = false;
+
+  function setTopicColor() {
+    document.documentElement.style.setProperty("--verdict", "var(" + T().color + ")");
+  }
+
+  function cancelPlay() {
+    token++;
+    if (playing) {
+      playing = false;
+      btnPlay.textContent = "Replay";
+      elStatus.textContent = "";
+    }
+    setLive([]);
+  }
+
+  async function play() {
+    var my = ++token;
+    playing = true;
+    btnPlay.textContent = "Playing";
+    clearTerm();
+    markDone(0);
+    for (var i = 0; i < stages.length; i++) {
+      if (my !== token) return;
+      var s = stages[i];
+      markDone(i);
+      select(s.id);
+      setLive(s.live || []);
+      elStatus.textContent = "Stage " + (i + 1) + " of " + stages.length + ": " + s.name;
+      var lines = s.log(T());
+      for (var j = 0; j < lines.length; j++) {
+        if (my !== token) return;
+        await addLine(lines[j], my);
+      }
+      await sleep(500);
+    }
+    if (my !== token) return;
+    markDone(stages.length);
+    setLive([]);
+    playing = false;
+    btnPlay.textContent = "Replay";
+    elStatus.textContent = "Run complete. Click any stage to inspect it.";
+  }
+
+  function setTopic(k) {
+    cancelPlay();
+    current = k;
+    Array.prototype.forEach.call(elTopics.children, function (b) {
+      b.setAttribute("aria-checked", b.dataset.key === k ? "true" : "false");
+    });
+    setTopicColor();
+    markDone(0);
+    clearTerm();
+    elTerm.appendChild(el("div", "line dim", "Press Play the run to start."));
+    btnPlay.textContent = "Play the run";
+    elStatus.textContent = "";
+    select(selected);
+  }
+
+  btnPlay.addEventListener("click", function () { if (!playing) play(); });
+
+  buildTopics();
+  buildLists();
+  setTopic("pizza");
+  select("topic");
+})();
+</script>
+</body>
+</html>

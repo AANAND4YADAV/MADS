@@ -1,0 +1,27 @@
+# Secrets
+.env
+*.env
+*.pem
+*.csv.key
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local data
+debates.db
+*.db
+*.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db

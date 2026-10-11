@@ -1,8 +1,8 @@
 # MADS: Multi-Agent Debate System
 
-> Four AI experts debate where your waste belongs. A judge delivers the verdict. Every debate is saved to AWS S3.
+> A command-line tool where four AI experts debate where your waste belongs. A judge delivers the verdict. Every debate is saved to AWS S3.
 
-MADS classifies waste by letting specialist agents argue it out instead of trusting a single model's answer. Each agent defends a different default position, the debate is streamed token by token, and the final bin is chosen by a judge. The system is traced with OpenTelemetry (via OpenLIT), measured for latency, and persists every result to Amazon S3.
+MADS is a **command-line interface (CLI) tool** that classifies waste by letting specialist agents argue it out instead of trusting a single model's answer. Each agent defends a different default position, the debate is streamed token by token, and the final bin is chosen by a judge. The system is traced with OpenTelemetry (via OpenLIT), measured for latency, and persists every result to Amazon S3.
 
 ---
 
@@ -10,6 +10,7 @@ MADS classifies waste by letting specialist agents argue it out instead of trust
 
 | Feature | What it gives you |
 |---|---|
+| **CLI tool** | Runs from the terminal with one command (`python main.py`). No web server or UI needed |
 | **Multi-agent debate** | Four role-driven agents with opposing stances argue each topic before a verdict |
 | **Local LLM inference** | Runs on Ollama, so no per-token API cost for the debate itself |
 | **Streaming** | Tokens are streamed as they are generated, so you see the debate live |
@@ -17,6 +18,7 @@ MADS classifies waste by letting specialist agents argue it out instead of trust
 | **OpenTelemetry tracing** | Optional OpenLIT instrumentation for traces and LLM metrics |
 | **AWS S3 persistence** | Every debate and a run summary stored as JSON in S3 |
 | **High cohesion, low coupling** | Each module has one job and talks to others through small interfaces |
+| **Visualizer** | `visualizer.html` is an interactive walkthrough of what goes into and comes out of each stage |
 
 ---
 
@@ -176,7 +178,7 @@ You can set them in your shell, in your IDE's run configuration, or in a local `
 
 > **Never commit credentials.** Make sure `.env` is listed in `.gitignore`. If a key is ever exposed, delete it in IAM and create a new one.
 
-### Run
+### Run (CLI)
 
 ```bash
 python main.py
@@ -206,9 +208,18 @@ Then each topic is debated, the verdict bin is printed, and the saved S3 path is
 ├── topics.py            # topics to debate
 ├── storage.py           # AWS S3 persistence
 ├── benchmark.py         # latency benchmarking
+├── visualizer.html      # interactive pipeline walkthrough
 ├── requirements.txt
 └── .gitignore
 ```
+
+---
+
+## Visualizer
+
+Open `visualizer.html` in any browser to see how one topic moves through MADS. Pick a sample topic, press **Play the run**, and watch each stage light up. Click any stage to see what goes in, what it does, and what comes out. The model, streaming, latency and tracing pieces that run alongside every debate are included too.
+
+The file is self-contained: no install, no server, no network calls to AWS. The debate text is illustrative, while the file names and JSON fields match what MADS writes to S3.
 
 ---
 
